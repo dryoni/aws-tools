@@ -20,8 +20,8 @@ This tool is intended for easy development and debugging of Lambda Functions, an
 	**Commands**:
   
 	- Invoke with payload file: `lambda invoke -f lambda-test -p payload.json`
-  
-  - Invoke with payload string: `lambda invoke -f lambda-test -t '{"test":"test"}'`
+	
+    - Invoke with payload string: `lambda invoke -f lambda-test -t '{"test":"test"}'`
   
 	- Invoke without payload: `lambda invoke -f lambda-test`
 
