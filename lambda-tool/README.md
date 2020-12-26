@@ -6,7 +6,7 @@ This tool is intended for easy development and debugging of Lambda Functions, an
 - Any change on the local folder will be automatically uploaded to the Lambda function
 - On the first run you can sync data from Lambda to local folder:
 	- If the local folder doesn't exist, it will happen automatically
-	- If the code in the local folder is different on the first run, you will be asked before syncing (in case there were local changes made which might get erased)
+	- If the code in the local folder is different, you will be asked before syncing (in case there were local changes made which might get erased)
 
 	**Commands**:
   
