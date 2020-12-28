@@ -57,6 +57,10 @@ def print_blue(message, nl=True):
     click.echo(click.style(str(message), fg='bright_blue'), nl=nl)
 
 
+def print_yellow(message, nl=True):
+    click.echo(click.style(str(message), fg='bright_yellow'), nl=nl)
+
+
 def print_red(message, nl=True):
     click.echo(click.style(str(message), fg='bright_red'), nl=nl)
 
@@ -82,9 +86,9 @@ def list_folder(dir_name):
     ''' Get dict of all files names and modified dates in a folder '''
     if not os.path.isdir(dir_name):
         if not os.path.exists(dir_name):
-            print(f"Error: {dir_name} doesn't exist")
+            print_red(f"Error: Folder {dir_name} doesn't exist")
         else:
-            print(f"Error: {dir_name} is not a folder")
+            print_red(f"Error: Folder {dir_name} is not a folder")
         return {}
 
     cwd = os.getcwd()
@@ -170,6 +174,7 @@ def get_lambda_functions():
             all_functions[function_name] = func
     return all_functions
 
+
 def get_lambda_code(function_name):
     temp_downloaded_zip_file = list(tempfile.mkstemp())[1]
     client = boto3.client('lambda')
@@ -205,12 +210,92 @@ def update_function(function_name, dir_name):
             )
         except client.exceptions.ResourceNotFoundException:
             print_red(f'Error: Lambda Function not found: {function_name}\n')
-        if 'LastUpdateStatus' in response and response['LastUpdateStatus'] == 'Successful':
-            result = True
+        else:
+            if 'LastUpdateStatus' in response and response['LastUpdateStatus'] == 'Successful':
+                result = True
 
         os.remove(temp_zip_file_name)
 
     return result
+
+
+def create_lambda_function(function_name, dir_name, role_arn, runtime, handler, memory, timeout):
+    temp_zip_file_name = get_temp_file()
+    if zipdir(dir_name, temp_zip_file_name):
+        zip_data = open(temp_zip_file_name, 'rb').read()
+        client = boto3.client('lambda')
+        finished = False
+        while not finished:
+            try:
+                response = client.create_function(
+                    FunctionName=function_name,
+                    Runtime=runtime,
+                    Role=role_arn,
+                    Handler=handler,
+                    Code={'ZipFile': zip_data},
+                    Description='',
+                    Timeout=timeout,
+                    MemorySize=memory,
+                    Publish=True,
+                    PackageType='Zip'
+                )
+                return True
+            except client.exceptions.ResourceNotFoundException:
+                print_red(f'Error: Lambda Function not found: {function_name}\n')
+                finished = True
+            except client.exceptions.ClientError as err:
+                err_code = err.response['Error']['Code']
+                err_msg = err.response['Error']['Message']
+                if 'The role defined for the function cannot be assumed by Lambda' in err_msg:
+                    continue
+                print_red(f'Error creating Lambda function - {err_msg}')
+                finished = True
+
+        os.remove(temp_zip_file_name)
+
+    return False
+
+
+def get_sample_code(runtime):
+    if 'python' in runtime:
+        file_name = 'lambda_function.py'
+        handler = 'lambda_function.lambda_handler'
+        code = '''import json
+
+def lambda_handler(event, context):
+    print(event)
+    return {
+        'statusCode': 200,
+        'body': 'ok'
+    }
+'''
+    elif 'nodejs' in runtime:
+        file_name = 'index.js'
+        handler = 'index.handler'
+        code = '''exports.handler = async (event) => {
+// TODO implement
+const response = {
+    statusCode: 200,
+    body: JSON.stringify('ok'),
+};
+return response;
+};
+'''
+    elif 'ruby' in runtime:
+        file_name = 'lambda_function.rb'
+        handler = 'lambda_function.lambda_handler'
+        code = '''require 'json'
+
+def lambda_handler(event:, context:)
+# TODO implement
+{ statusCode: 200, body: JSON.generate('ok') }
+end
+'''
+    else:
+        file_name = 'lambda_function.txt'
+        handler = 'lambda_function.lambda_handler'
+        code = ''
+    return file_name, handler, code
 
 
 # Cloudwatch functions
@@ -273,7 +358,156 @@ def get_streams(log_group_name):
         return response['logStreams']
 
 
+def get_function_role(function_name):
+    client = boto3.client('lambda')
+    try:
+        response = client.get_function(FunctionName=function_name)
+        return response['Configuration']['Role']
+    except client.exceptions.ResourceNotFoundException:
+        print_red(f'Error: Lambda Function not found: {function_name}')
+    return ''
+
+
+def delete_function(function_name):
+    client = boto3.client('lambda')
+    try:
+        response = client.delete_function(FunctionName=function_name)
+        return True
+    except client.exceptions.ResourceNotFoundException:
+        print_red(f'Error: Lambda Function not found: {function_name}\n')
+    return False
+
+
+# IAM Functions
+
+def get_account_id():
+    try:
+        client = boto3.client('sts')
+        return client.get_caller_identity().get('Account')
+    except client.exceptions.ClientError as err:
+        if re.match(r'(InvalidClientTokenId|AuthFailure)', vars(err)['response']['Error']['Code']):
+            print_red('Error: Missing or invalid keys\n')
+        else:
+            err_code = err.response['Error']['Code']
+            print_red(f'Error getting account ID - {err_code}')
+    return ''
+
+
+def create_iam_policy(policy_name, policy_doc):
+    client = boto3.client('iam')
+    description = f'Basic policy for Lambda function'
+    try:
+        response = client.create_policy(
+            PolicyName=policy_name,
+            PolicyDocument=json.dumps(policy_doc),
+            Description=description,
+        )
+        print_green(f'Policy {policy_name} created successfully')
+        return response['Policy']['Arn']
+    except client.exceptions.EntityAlreadyExistsException as err:
+        print_yellow(f'policy {policy_name} already exists')
+    except client.exceptions.ClientError as err:
+        err_code = err.response['Error']['Code']
+        print_red(f'Error creating IAM Policy {policy_name} - {err_code}')
+    return ''
+
+
+def attach_policy_to_role(role_name, policy_arn):
+    """Attach IAM Policy to IAM Role"""
+    client = boto3.client('iam')
+    try:
+        client.attach_role_policy(
+            RoleName=role_name,
+            PolicyArn=policy_arn,
+        )
+        print_green('Success')
+        return True
+    except client.exceptions.ClientError as err:
+        err_code = err.response['Error']['Code']
+        print_red(f'Error creating IAM Policy {policy_arn} - {err_code}')
+
+    return False
+
+
+def create_role(role_name):
+    """Create new IAM Role"""
+    assume_role_policy = {
+        'Version': '2012-10-17',
+        'Statement': [
+            {
+                'Effect': 'Allow',
+                'Principal': {
+                    'Service': 'lambda.amazonaws.com',
+                },
+                'Action': 'sts:AssumeRole',
+            },
+        ],
+    }
+    try:
+        client = boto3.client('iam')
+        response = client.create_role(
+            Path='/',
+            RoleName=role_name,
+            AssumeRolePolicyDocument=json.dumps(assume_role_policy),
+            Description='IAM Role',
+            MaxSessionDuration=3600,
+        )
+        print_green(f'Role {role_name} created successfully')
+        return response['Role']['Arn']
+    except client.exceptions.EntityAlreadyExistsException:
+        print_yellow(f'Role {role_name} already exists')
+    except client.exceptions.ClientError as err:
+        err_code = err.response['Error']['Code']
+        print_red(f'Error creating IAM Policy {policy_name} - {err_code}')
+
+    return ''
+
+
+def get_role_policies(role_name):
+    client = boto3.client('iam')
+    response = client.list_attached_role_policies(RoleName=role_name)
+    attached_policies = response['AttachedPolicies']
+    policies_arn = {x['PolicyArn']: x['PolicyName'] for x in attached_policies}
+    return policies_arn
+
+
+def delete_iam_policy(policy_arn):
+    client = boto3.client('iam')
+    try:
+        response = client.delete_policy(PolicyArn=policy_arn)
+        return True
+    except client.exceptions.ClientError as err:
+        err_code = err.response['Error']['Code']
+        print_red(f'Error: {err_code}')
+        return False
+
+
+def detach_role_policy(role_name, policy_arn):
+    client = boto3.client('iam')
+    try:
+        response = client.detach_role_policy(
+            RoleName=role_name,
+            PolicyArn=policy_arn,
+        )
+        return True
+    except client.exceptions.ClientError as err:
+        err_code = err.response['Error']['Code']
+        print_red(f'Error: {err_code}')
+        return False
+
+
+def delete_iam_role(role_name):
+    client = boto3.client('iam')
+    try:
+        response = client.delete_role(RoleName=role_name)
+        return True
+    except client.exceptions.ClientError as err:
+        err_code = err.response['Error']['Code']
+        print_red(f'Error: {err_code}')
+        return False
+
 # Click Commands
+
 
 CONTEXT_SETTINGS = dict(help_option_names=['-h', '--help'])
 
@@ -387,7 +621,8 @@ def sync(function_name, dir_name, interval, one):
         else:
             print('Updating Lambda Function...')
             result = update_function(function_name, dir_name)
-        print_green('Up to Date!')
+        if not one:
+            print_green('Up to Date!')
 
     while not one:
         sleep(interval)
@@ -471,6 +706,199 @@ def invoke(function_name, payload, text):
     print(billed_duration)
     print_blue('Max Memory Used : ', nl=False)
     print(max_mem_used)
+
+
+@cli.command()
+@click.option('--function_name', '-f', type=str, required=True, help='Lambda Function Name')
+@click.option('dir_name', '--dir', '-d', type=str, help='Directory to sync')
+@click.option('--runtime', type=str, required=False, default='python3.7', help='Directory to sync')
+@click.option('--handler', type=str, required=False, default='', help='Handler Method to use')
+@click.option('--timeout', type=int, required=False, default=60, help='Timeout in seconds. Max is 900')
+@click.option('--memory', type=int, required=False, default=1024, help='Memory to use. between 128-10240')
+@click.option('--quick', '-q', is_flag=True, default=False, help="Don't ask questions")
+def create(function_name, dir_name, runtime, handler, timeout, memory, quick):
+    ''' Create new Lambda Function '''
+
+    # Check if lambda already exists
+    all_functions = get_lambda_functions()
+    if function_name in all_functions:
+        print_red(f'Function {function_name} already exists\n')
+        return
+
+    file_name, temp_handler, code = get_sample_code(runtime)
+    if not handler:
+        handler = temp_handler
+
+    if not dir_name:
+        dir_name = f'lambda_{function_name}'
+        if os.path.exists(dir_name):
+            if not quick and not ask(f'Folder {dir_name} will be overwritten. Do you approve?'):
+                return
+            shutil.rmtree(dir_name)
+        print_blue('Creating new folder: ', nl=False)
+        os.mkdir(dir_name)
+
+        with open(f'{dir_name}/{file_name}', 'w') as f:
+            f.write(code)
+
+        print(dir_name)
+    elif not os.path.exists(dir_name):
+        print_red(f"Error: Folder {dir_name} doesn't exist")
+        return
+    elif not os.path.isdir(dir_name):
+        print_red(f"Error: {dir_name} is not a folder")
+        return
+
+    # Create IAM Policy for basic CW logs write access
+    print_blue('Creating basic IAM Policy.. ', nl=False)
+    cw_log_group_name = f'/aws/lambda/{function_name}'
+    role_name = f'lambda_{function_name}-role'
+    policy_name = f'lambda_{function_name}_basic_cw_policy'
+
+    policy_doc = {
+        'Version': '2012-10-17',
+        'Statement': [{
+            'Sid': 'WriteCWLogs',
+            'Effect': 'Allow',
+            'Action': [
+                'logs:CreateLogGroup',
+                'logs:CreateLogStream',
+                'logs:PutLogEvents'
+            ],
+            'Resource': [
+                f'arn:aws:logs:*:*:log-group:{cw_log_group_name}',
+                f'arn:aws:logs:*:*:log-group:{cw_log_group_name}:*'
+            ],
+        }],
+    }
+    policy_arn = create_iam_policy(policy_name, policy_doc)
+    account_id = ''
+    if not policy_arn:
+        account_id = get_account_id()
+        policy_arn = f'arn:aws:iam::{account_id}:policy/{policy_name}'
+
+    # Create IAM role for Lambda function
+    print_blue('Creating IAM role.. ', nl=False)
+    role_arn = create_role(role_name)
+    if not role_arn:
+        if not account_id:
+            account_id = get_account_id()
+        role_arn = f'arn:aws:iam::{account_id}:role/{role_name}'
+
+    # Attach basic policy to role
+    print_blue('Attaching policy to role.. ', nl=False)
+    attach_policy_to_role(role_name, policy_arn)
+
+    print_blue('Creating Lambda function.. ', nl=False)
+    if create_lambda_function(function_name, dir_name, role_arn, runtime, handler, memory, timeout):
+        print_green('Success')
+
+
+def update_function(function_name, attrs):
+    try:
+        client = boto3.client('lambda')
+        response = client.update_function_configuration(**attrs)
+        return True
+    except client.exceptions.ClientError as err:
+        err_msg = err.response['Error']['Message']
+        print_red(f'Error: - {err_msg}')
+
+    return False
+
+
+@cli.command()
+@click.option('--function_name', '-f', type=str, required=True, help='Lambda Function Name')
+@click.option('--runtime', type=str, help='Directory to sync')
+@click.option('--handler', type=str, help='Handler Method to use')
+@click.option('--timeout', type=int, help='Timeout in seconds. Max is 900')
+@click.option('--memory', type=int, help='Memory to use. between 128-10240')
+def update(function_name, runtime, handler, timeout, memory):
+    ''' Create new Lambda Function '''
+    attrs = {}
+    if runtime:
+        attrs['Runtime'] = runtime
+    if handler:
+        attrs['Handler'] = handler
+    if timeout:
+        attrs['Timeout'] = timeout
+    if memory:
+        attrs['MemorySize'] = memory
+    if not attrs:
+        print_red('No option was chosen')
+        return
+    attrs['FunctionName'] = function_name
+
+    print_blue('Updating Lambda function.. ', nl=False)
+    if update_function(function_name, attrs):
+        print('OK')
+
+
+def delete_log_group(log_group_name):
+    client = boto3.client('logs')
+    try:
+        response = client.delete_log_group(logGroupName=log_group_name)
+        return True
+    except client.exceptions.ClientError as err:
+        err_msg = err.response['Error']['Message']
+        print_red(f'Error: - {err_msg}')
+    return False
+
+
+@cli.command()
+@click.option('--function_name', '-f', type=str, required=True, help='Lambda Function Name')
+@click.option('--quick', '-q', is_flag=True, default=False, help="Don't ask questions")
+def delete(function_name, quick):
+    ''' Delete a Lambda function and attached resources '''
+
+    print_blue('Check if function exist... ', nl=False)
+    function_exists = role_arn = get_function_role(function_name)
+
+    cw_log_group_name = f'/aws/lambda/{function_name}'
+    role_name = re.sub(r'^.*\/([^\/]+)$', r'\1', role_arn)
+    # Delete Lambda Function
+    if role_arn:
+
+        print_green('OK')
+        policies = get_role_policies(role_name)
+    else:
+        account_id = get_account_id()
+        role_name = f'lambda_{function_name}-role'
+        policy_name = f'lambda_{function_name}_basic_cw_policy'
+        policies = {f'arn:aws:iam::{account_id}:policy/{policy_name}': policy_name}
+        role_arn = f'arn:aws:iam::{account_id}:role/{role_name}'
+
+    print_yellow('The following resources will be deleted:')
+    print(f'Role: {role_name}')
+    print(f'Log Group: {cw_log_group_name}')
+    for policy_arn in policies:
+        policy_name = policies[policy_arn]
+        print(f'Policy: {policy_name}')
+    print()
+    if not quick and not ask('Do you approve?'):
+        return
+
+    if function_exists:
+        print_blue('Deleting Lambda function.. ', nl=False)
+        if delete_function(function_name):
+            print_green('Success')
+
+    for policy_arn in policies:
+        policy_name = policies[policy_arn]
+        print_blue(f'Detaching policy {policy_name} from role {role_name}... ', nl=False)
+        if detach_role_policy(role_name, policy_arn):
+            print_green('OK')
+
+        print_blue(f'Deleting policy {policy_name}... ', nl=False)
+        if delete_iam_policy(policy_arn):
+            print_green('OK')
+
+    print_blue(f'Deleting IAM Role {role_name}... ', nl=False)
+    if delete_iam_role(role_name):
+        print_green('OK')
+
+    print_blue(f'Deleting Log Group {cw_log_group_name}... ', nl=False)
+    if delete_log_group(cw_log_group_name):
+        print_green('OK')
 
 
 @cli.command(name='list')
