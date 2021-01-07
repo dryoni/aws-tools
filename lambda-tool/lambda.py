@@ -195,7 +195,7 @@ def get_lambda_code(function_name):
     return {'result': data}
 
 
-def update_function(function_name, dir_name):
+def update_function_dir(function_name, dir_name):
     ''' Update Lambda Function Code from a folder'''
     result = False
     temp_zip_file_name = get_temp_file()
@@ -620,7 +620,7 @@ def sync(function_name, dir_name, interval, one):
             saved_data = remote_code
         else:
             print('Updating Lambda Function...')
-            result = update_function(function_name, dir_name)
+            result = update_function_dir(function_name, dir_name)
         if not one:
             print_green('Up to Date!')
 
@@ -631,7 +631,7 @@ def sync(function_name, dir_name, interval, one):
             saved_data = temp_saved_data
             print('Updating Lambda Function...', end='')
             sys.stdout.flush()
-            result = update_function(function_name, dir_name)
+            result = update_function_dir(function_name, dir_name)
             if result:
                 print_green('\n\nUp to Date!')
             else:
@@ -797,6 +797,7 @@ def create(function_name, dir_name, runtime, handler, timeout, memory, quick):
 def update_function(function_name, attrs):
     try:
         client = boto3.client('lambda')
+        print(attrs)
         response = client.update_function_configuration(**attrs)
         return True
     except client.exceptions.ClientError as err:
