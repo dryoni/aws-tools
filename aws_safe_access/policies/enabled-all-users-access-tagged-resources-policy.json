@@ -1,0 +1,30 @@
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "AllResourcesAccess",
+            "Effect": "Allow",
+            "Action": [
+                "ec2:DescribeInstances",
+                "ec2:DescribeSecurityGroups"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "AccessOnlyToTaggedInstances",
+            "Effect": "Allow",
+            "Action": [
+                "ec2:RevokeSecurityGroupIngress",
+                "ec2:StartInstances",
+                "ec2:AuthorizeSecurityGroupIngress",
+                "ec2:UpdateSecurityGroupRuleDescriptionsIngress"
+            ],
+            "Resource": "*",
+            "Condition": {
+                "StringEqualsIgnoreCase": {
+                    "ec2:ResourceTag/acc": "true"
+                }
+            }
+        }
+    ]
+}
