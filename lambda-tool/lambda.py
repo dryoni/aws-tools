@@ -98,7 +98,7 @@ def list_folder(dir_name):
         for file in files:
             root = re.sub(r'^.\/?(.*)$', r'\1', root)
             full_path = os.path.join(root, file)
-            data = open(full_path).read().encode()
+            data = open(full_path,'rb').read()
             result[full_path] = data
     os.chdir(cwd)
     return result
