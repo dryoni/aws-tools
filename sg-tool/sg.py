@@ -1,18 +1,20 @@
-#!/usr/bin/env python
-import re
-import sys
-import json
+#!/usr/bin/env python3
 import boto3
-import click
-import pickle
 import botocore
-import dns.resolver
-from netaddr import IPNetwork, IPAddress
-from datetime import datetime, timedelta
+import click
 from concurrent.futures import as_completed
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta
+import dns.resolver
+import json
+from netaddr import IPNetwork, IPAddress
+import pickle
+import re
+import sys
+import time
 
 
+# Colors:
 BLUE = '\033[94m'
 RED = '\033[91m'
 GREEN = '\033[92m'
@@ -85,7 +87,7 @@ class Boto:
                 except KeyError:
                     throttle_count += 1
                     throttle_wait_ms = 2**throttle_count/10
-                    sleep(throttle_wait_ms)
+                    time.sleep(throttle_wait_ms)
                     continue
             self.boto_clients[service_name] = client_service
         return client_service
@@ -143,13 +145,13 @@ class Boto:
             except botocore.exceptions.EndpointConnectionError:
                 throttle_count += 1
                 throttle_wait_ms = 2**throttle_count/10
-                sleep(throttle_wait_ms)
+                time.sleep(throttle_wait_ms)
                 continue
             except client.exceptions.ClientError as err:
                 if err.response['Error']['Code'] == 'Throttling':
                     throttle_count += 1
                     throttle_wait_ms = 2**throttle_count/10
-                    sleep(throttle_wait_ms)
+                    time.sleep(throttle_wait_ms)
                     continue
                 else:
                     err_msg = err.response['Error']['Message']
