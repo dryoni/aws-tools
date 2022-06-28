@@ -14,7 +14,7 @@ import sys
 import time
 
 
-# Colors:
+# Console Text Colors:
 BLUE = '\033[94m'
 RED = '\033[91m'
 GREEN = '\033[92m'
@@ -288,8 +288,7 @@ def get_referenced_sgs(full_sg_name, all_sgs, sgs_names):
 
 
 def get_elasticache_instances():
-    es_instances = Boto().aws(
-        'elasticache', 'describe_cache_clusters', ShowCacheNodeInfo=True)
+    es_instances = Boto().aws('elasticache', 'describe_cache_clusters', ShowCacheNodeInfo=True)
     result = {}
     for instance in es_instances:
         name = instance['CacheClusterId']
@@ -633,6 +632,7 @@ def get_neptune_instances():
 
 
 def get_attached_resources(interfaces):
+
     attached_entities = {}
     saved_redshift_clusters = ''
     saved_rds_instances = ''
@@ -641,7 +641,11 @@ def get_attached_resources(interfaces):
     saved_neptune_clusters = ''
     saved_ecs_clusters = ''
     saved_sm_endpoints = ''
+    
+    NetworkInterfaces = []
+
     for eni in interfaces:
+        
         description = eni['Description']
         int_type = eni['InterfaceType']
         eni_id = eni['NetworkInterfaceId']
@@ -656,11 +660,16 @@ def get_attached_resources(interfaces):
 
         all_eni_ips = private_ips
 
+        # Get any Network Interfaces a Security Group is attached to
+        if eni_id is not None:
+          NetworkInterfaces.append(eni_id)
+
         requester_id = eni.get('RequesterId')
         status = eni.get('Status')
         managed = eni.get('RequesterManaged')
         attachment = eni.get('Attachment')
         instance_id = ''
+
         if attachment:
             instance_id = attachment.get('InstanceId')
 
@@ -878,12 +887,19 @@ def get_attached_resources(interfaces):
         else:
             service = 'Unknown'
             name = description
+
+        # Create list of Attached Resources
         full_res_name = f'{service} {name}'
+        
         if not full_res_name in attached_entities:
             attached_entities[full_res_name] = {
                 'service': service, 'name': name, 'ips': private_ips}
         else:
             attached_entities[full_res_name]['ips'] += private_ips
+    
+    # Add Network Interfaces - if any - to Attached Resources
+    if NetworkInterfaces is not None and len(NetworkInterfaces) > 0:
+      attached_entities['Network Interfaces'] = {'service': 'Network Interface', 'name': 'ENIs', 'ips': NetworkInterfaces}
 
     return attached_entities
 
@@ -906,10 +922,12 @@ def get_interfaces_and_sgs():
                 all_sgs = data
             elif action_name == 'describe_network_interfaces':
                 all_ec2_interfaces = data
+
     return all_ec2_interfaces, all_sgs
 
 
 def main():
+
     if len(sys.argv) < 2:
         all_sgs = Boto().aws('ec2', 'describe_security_groups')
         sgs_list = []
@@ -935,6 +953,7 @@ def main():
     else:
         cache = False
         all_ec2_interfaces, all_sgs = get_interfaces_and_sgs()
+        
         save_data('/tmp/ec2_interfaces.pickle', all_ec2_interfaces)
         save_data('/tmp/sgs.pickle', all_sgs)
 
@@ -1055,3 +1074,4 @@ if __name__ == '__main__':
         main()
     except KeyboardInterrupt:
         print_red("\r  \nInterrupted by Ctrl+C\n")
+
