@@ -1085,7 +1085,7 @@ def main():
             print(f'\t- {ref_sg}', end='')
             ref_sg_interfaces = [x for x in all_ec2_interfaces if ref_sg_id in [
                 y['GroupId'] for y in x['Groups']]]
-            ref_attached_resources = get_attached_resources(ref_sg_interfaces)
+            ref_attached_resources = get_attached_resources(ref_sg_interfaces, sg_id)
             ref_sg_data = [x for x in all_sgs if x['GroupId'] == ref_sg_id][0]
             ref_inbound_rules_raw = ref_sg_data['IpPermissions']
             ref_inbound_rules = get_rules(ref_inbound_rules_raw, sgs_names)
