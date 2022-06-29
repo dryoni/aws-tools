@@ -637,14 +637,6 @@ def run_lambda_action(action_name):
     return action_name, Boto().aws('lambda', action_name, 'NextMarker')
 
 def get_lambdas():
-    # threads = []
-    # with ThreadPoolExecutor(max_workers=1) as executor:
-    #     threads.append(executor.submit(run_lambda_action, 'list_functions'))
-
-    #     for future in as_completed(threads):
-    #         action_name, data = future.result()
-    #         if action_name == 'list_functions':
-    #             all_lambdas = data
 
     lambda_client = boto3.client('lambda')
 
