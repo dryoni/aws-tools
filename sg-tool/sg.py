@@ -21,7 +21,6 @@ GREEN = '\033[92m'
 ENDC = '\033[0m'
 YELLOW = '\033[93m'
 
-
 def print_green(message, nl=True):
     click.echo(click.style(str(message), fg='bright_green'), nl=nl)
 
@@ -93,9 +92,11 @@ class Boto:
         return client_service
 
     def aws(self, service_name, function_name, max_results=0, quiet=False, cache=True, **kwargs):
+        
         full_req_name = f'{service_name}:{function_name}:{kwargs}'
         if cache and full_req_name in self.aws_cache:
             return self.aws_cache[full_req_name]
+        
         aws_functions_dict = {
             'ec2:describe_network_interfaces': {'token_name': 'NextToken', 'max_name': 'MaxResults', 'max_items': 1000, 'no_max_args': ['NetworkInterfaceIds']},
             'elasticache:describe_cache_clusters': {'token_name': 'Marker', 'max_name': 'MaxRecords', 'max_items': 100},
@@ -112,10 +113,11 @@ class Boto:
             'ecs:list_tasks': {'token_name': 'nextToken', 'max_name': 'maxResults', 'max_items': 100},
             'sagemaker:list_endpoints': {'token_name': 'NextToken', 'max_name': 'MaxResults', 'max_items': 100},
             'cloudtrail:lookup_events': {'token_name': 'NextToken', 'max_name': 'MaxResults', 'max_items': 50},
+            'lambda:list_functions': {'token_name': 'Marker', 'max_name': 'MaxItems', 'max_items': 100},
 
         }
-        next_token_key_names = ['NextMarker',
-                                'NextToken', 'Marker', 'nextToken']
+        
+        next_token_key_names = ['NextMarker', 'NextToken', 'Marker', 'nextToken']
 
         object_list = []
         token_name = ''
@@ -630,8 +632,42 @@ def get_neptune_instances():
 
     return result
 
+# Get any Lambdas attached to a Security Group
+def run_lambda_action(action_name):
+    return action_name, Boto().aws('lambda', action_name, 'NextMarker')
 
-def get_attached_resources(interfaces):
+def get_lambdas():
+    # threads = []
+    # with ThreadPoolExecutor(max_workers=1) as executor:
+    #     threads.append(executor.submit(run_lambda_action, 'list_functions'))
+
+    #     for future in as_completed(threads):
+    #         action_name, data = future.result()
+    #         if action_name == 'list_functions':
+    #             all_lambdas = data
+
+    lambda_client = boto3.client('lambda')
+
+    all_lambdas = []
+    next_marker = None
+    response = lambda_client.list_functions()
+    all_lambdas.append(response)
+    while next_marker != '':
+      next_marker = ''
+      functions = response['Functions']
+      if not functions:
+        continue
+
+      # Verify if there is next marker
+      if 'NextMarker' in response:
+        next_marker = response['NextMarker']
+        response = lambda_client.list_functions(Marker=next_marker)
+        all_lambdas.append(response)
+    
+    
+    return all_lambdas
+
+def get_attached_resources(interfaces, sg_id):
 
     attached_entities = {}
     saved_redshift_clusters = ''
@@ -643,6 +679,7 @@ def get_attached_resources(interfaces):
     saved_sm_endpoints = ''
     
     NetworkInterfaces = []
+    Lambda_ips = [] # get list of IPs for lambdas sharing same security group
 
     for eni in interfaces:
         
@@ -680,6 +717,7 @@ def get_attached_resources(interfaces):
             name = re.sub(
                 r'^AWS Lambda VPC ENI\-(.+)\-[^\-]+\-[^\-]+\-[^\-]+\-[^\-]+\-[^\-]+$', r'\1', description)
             service = 'Lambda Function'
+            Lambda_ips += private_ips
 
         elif int_type == 'nat_gateway':
             service = 'NAT Gateway'
@@ -897,6 +935,33 @@ def get_attached_resources(interfaces):
         else:
             attached_entities[full_res_name]['ips'] += private_ips
     
+    # Add Lambdas - if any - to Attached Resources
+    all_lambdas = get_lambdas()
+    
+    all_functions = []
+    
+    for lambdas in all_lambdas:
+      all_functions = lambdas['Functions']
+    
+      for lambda_funtion in all_functions:
+       
+        # If no VpcConfig in the lambda Function - skip it
+        if 'VpcConfig' in lambda_funtion:
+          Function_Name = lambda_funtion['FunctionName']
+          Security_Groups = lambda_funtion['VpcConfig']['SecurityGroupIds']
+
+          if sg_id in Security_Groups:
+            service = 'Lambda Function'
+            name = Function_Name
+            
+            full_res_name = f'{service} {name}'
+            if full_res_name not in attached_entities:
+              attached_entities[full_res_name] = {'service': service, 'name': name, 'ips': Lambda_ips}
+            else:
+              for private_ip in private_ips:
+                  if private_ip not in Lambda_ips:
+                    attached_entities[full_res_name]['ips'] += private_ips
+    
     # Add Network Interfaces - if any - to Attached Resources
     if NetworkInterfaces is not None and len(NetworkInterfaces) > 0:
       attached_entities['Network Interfaces'] = {'service': 'Network Interface', 'name': 'ENIs', 'ips': NetworkInterfaces}
@@ -911,10 +976,8 @@ def run_ec2_action(action_name):
 def get_interfaces_and_sgs():
     threads = []
     with ThreadPoolExecutor(max_workers=2) as executor:
-        threads.append(executor.submit(
-            run_ec2_action, 'describe_security_groups'))
-        threads.append(executor.submit(
-            run_ec2_action, 'describe_network_interfaces'))
+        threads.append(executor.submit(run_ec2_action, 'describe_security_groups'))
+        threads.append(executor.submit(run_ec2_action, 'describe_network_interfaces'))
 
         for future in as_completed(threads):
             action_name, data = future.result()
@@ -924,7 +987,6 @@ def get_interfaces_and_sgs():
                 all_ec2_interfaces = data
 
     return all_ec2_interfaces, all_sgs
-
 
 def main():
 
@@ -989,8 +1051,8 @@ def main():
 
     sg_interfaces = [x for x in all_ec2_interfaces if sg_id in [
         y['GroupId'] for y in x['Groups']]]
-
-    attached_resources = get_attached_resources(sg_interfaces)
+    
+    attached_resources = get_attached_resources(sg_interfaces, sg_id)
 
     if attached_resources:
         print_blue('Attached to Resources: ')
