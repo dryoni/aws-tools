@@ -13,6 +13,16 @@ import re
 import sys
 import time
 
+# ******************************************************************************************************************
+# Change Log:
+# Date           Who                Company           Change(s):
+# ------------------------------------------------------------------------------------------------------------------
+# 06/29/2022     Richard Knechtel   Blast Motion      Showing Network Interfaces and Security Group is attached to, 
+#                                                     Showing all lambdas an SG is attached to, 
+#                                                     Added usage for a python virtual environment
+# ------------------------------------------------------------------------------------------------------------------
+#
+# ******************************************************************************************************************
 
 # Console Text Colors:
 BLUE = '\033[94m'
