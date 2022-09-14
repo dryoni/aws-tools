@@ -6,6 +6,15 @@ This tool can be used to find ALL information related to a Security Group:
 - Attached Resources
 - References in other SGs
 
+--
+
+**Note:**  
+*Updates to this tool were done by:*  
+Name: Richard Knechtel  
+Company: Blast Motion  
+Date: 06/29/2022  
+
+--
 
 ## Python Virtual Environment Setup (Linux)  
 
