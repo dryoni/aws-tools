@@ -13,16 +13,6 @@ import re
 import sys
 import time
 
-# ******************************************************************************************************************
-# Change Log:
-# Date           Who                Company           Change(s):
-# ------------------------------------------------------------------------------------------------------------------
-# 06/29/2022     Richard Knechtel   Blast Motion      Showing Network Interfaces and Security Group is attached to, 
-#                                                     Showing all lambdas an SG is attached to, 
-#                                                     Added usage for a python virtual environment
-# ------------------------------------------------------------------------------------------------------------------
-#
-# ******************************************************************************************************************
 
 # Console Text Colors:
 BLUE = '\033[94m'
@@ -200,7 +190,8 @@ def get_rules(raw_list, sgs_names):
         ip_protocol = rule.get('IpProtocol')
         from_port = rule.get('FromPort')
         to_port = rule.get('ToPort')
-        cidr_info = rule.get('IpRanges')
+        cidr4_info = rule.get('IpRanges') # IPV4
+        cidr6_info = rule.get('Ipv6Ranges') # IPV6
         group_info = rule.get('UserIdGroupPairs')
 
         if ip_protocol:
@@ -219,18 +210,49 @@ def get_rules(raw_list, sgs_names):
         else:
             ports = "%s %s-%s" % (ip_protocol, from_port, to_port)
 
-        if cidr_info:
-            for cidr_one_info in cidr_info:
-                cidr = cidr_one_info.get('CidrIp')
-                description = cidr_one_info.get('Description')
-                if cidr:
-                    cidr = re.sub(r'^(.+)/32$', r'\1', cidr)
-                    cidr = re.sub(r'^0\.0\.0\.0/0$', 'ANY', cidr)
-
+        # IPV4
+        if cidr4_info:
+            for cidr4_one_info in cidr4_info:
+                
+                description = cidr4_one_info.get('Description')
                 if not description:
                     description = ''
-
-                rules.append([ports, cidr, description])
+                
+                cidr4 = cidr4_one_info.get('CidrIp')
+                if cidr4:
+                  cidr4 = re.sub(r'^(.+)/32$', r'\1', cidr4)
+                  cidr4 = re.sub(r'^0\.0\.0\.0/0$', 'ANY', cidr4)
+                
+                rules.append([ports, cidr4, description])    
+                
+        # IPV6
+        if cidr6_info:
+            for cidr6_one_info in cidr6_info:
+                
+                description = cidr6_one_info.get('Description')
+                if not description:
+                    description = ''
+                
+                cidr6 = cidr6_one_info.get('CidrIpv6')    
+                if cidr6:
+                   cidr6 = re.sub(r'''(([0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|
+        ([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:)
+        {1,6}:[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1
+        ,5}(:[0-9a-fA-F]{1,4}){1,2}|([0-9a-fA-F]{1,4}
+        :){1,4}(:[0-9a-fA-F]{1,4}){1,3}|([0-9a-fA-F]{
+        1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}|([0-9a-fA
+        -F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}|[0-9a
+        -fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})|:((:[0
+        -9a-fA-F]{1,4}){1,7}|:)|fe80:(:[0-9a-fA-F]{0,
+        4}){0,4}%[0-9a-zA-Z]{1,}|::(ffff(:0{1,4}){0,1}
+        :){0,1}((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9
+        ])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0
+        -9])|([0-9a-fA-F]{1,4}:){1,4}:((25[0-5]|(2[0-4]
+        |1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]
+        |1{0,1}[0-9]){0,1}[0-9]))''', r'\1', cidr6)
+                   cidr6 = re.sub(r'^::/0$', 'ANY', cidr6)
+                
+                rules.append([ports, cidr6, description])
 
         if group_info:
             for group_one_info in group_info:
@@ -1095,7 +1117,7 @@ def main():
             print(f'\t- {ref_sg}', end='')
             ref_sg_interfaces = [x for x in all_ec2_interfaces if ref_sg_id in [
                 y['GroupId'] for y in x['Groups']]]
-            ref_attached_resources = get_attached_resources(ref_sg_interfaces, sg_id)
+            ref_attached_resources = get_attached_resources(ref_sg_interfaces, ref_sg)
             ref_sg_data = [x for x in all_sgs if x['GroupId'] == ref_sg_id][0]
             ref_inbound_rules_raw = ref_sg_data['IpPermissions']
             ref_inbound_rules = get_rules(ref_inbound_rules_raw, sgs_names)
@@ -1138,4 +1160,3 @@ if __name__ == '__main__':
         main()
     except KeyboardInterrupt:
         print_red("\r  \nInterrupted by Ctrl+C\n")
-
